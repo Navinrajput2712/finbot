@@ -1,0 +1,35 @@
+# ============================================================
+# FinBot — Requirements
+# NVIDIA NIM API + RAG + FastAPI + Streamlit
+# ============================================================
+
+# LLM API — NVIDIA NIM (OpenAI-compatible)
+openai>=1.40.0
+
+# RAG Pipeline
+langchain>=0.2.0
+langchain-community>=0.2.0
+langchain-openai>=0.1.0
+chromadb>=0.5.0
+sentence-transformers>=2.6.0
+pymupdf
+pypdf
+
+# Cross-encoder reranker
+sentence-transformers>=2.6.0
+
+# Backend
+fastapi>=0.111.0
+uvicorn[standard]>=0.29.0
+pydantic>=2.7.0
+python-dotenv
+yfinance
+requests
+
+# Frontend
+streamlit>=1.35.0
+
+# Evaluation
+bert-score
+rouge-score
+evaluate

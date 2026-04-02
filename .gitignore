@@ -1,0 +1,49 @@
+# ============================================================
+# FinBot — .gitignore
+# ============================================================
+
+# Environment & Secrets — NEVER commit these
+.env
+*.key
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# ChromaDB — large vector store, don't commit
+chroma_db/
+
+# Large model files
+*.pt
+*.bin
+*.safetensors
+*.onnx
+
+# Data files — PDFs can be large
+data/knowledge_base/*.pdf
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Logs
+*.log
+logs/
+
+# Test outputs
+evaluation/results/
+*.json
+!.env.example
