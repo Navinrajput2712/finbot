@@ -60,33 +60,6 @@ st.markdown("""
         margin: 4px 0 0 0;
     }
 
-    /* Disclaimer banner */
-    .disclaimer-banner {
-        background: #2d2000;
-        border: 1px solid #f0b429;
-        border-radius: 8px;
-        padding: 10px 16px;
-        margin-bottom: 16px;
-        color: #f0b429;
-        font-size: 0.85rem;
-    }
-
-    /* Confidence colors */
-    .conf-high   { color: #48bb78; font-weight: 600; }
-    .conf-medium { color: #ed8936; font-weight: 600; }
-    .conf-low    { color: #fc8181; font-weight: 600; }
-
-    /* Source card */
-    .source-card {
-        background: #1a202c;
-        border: 1px solid #2d3748;
-        border-radius: 8px;
-        padding: 8px 12px;
-        margin: 4px 0;
-        font-size: 0.82rem;
-        color: #a0aec0;
-    }
-
     /* Chip buttons */
     .stButton > button {
         background: #1a2744;
@@ -137,12 +110,8 @@ def init_session_state():
         st.session_state.total_confidence = 0.0
     if "last_sources" not in st.session_state:
         st.session_state.last_sources = []
-    if "last_confidence" not in st.session_state:
-        st.session_state.last_confidence = 0.0
     if "chip_query" not in st.session_state:
         st.session_state.chip_query = None
-    if "api_healthy" not in st.session_state:
-        st.session_state.api_healthy = None
 
 init_session_state()
 
@@ -151,17 +120,9 @@ init_session_state()
 # API HELPERS
 # ============================================================
 def check_api_health() -> dict:
-    """
-    Check if FastAPI backend is healthy.
-
-    Returns:
-        Health response dict or error dict
-    """
+    """Check if FastAPI backend is healthy."""
     try:
-        response = requests.get(
-            f"{BACKEND_URL}/health",
-            timeout=5
-        )
+        response = requests.get(f"{BACKEND_URL}/health", timeout=5)
         if response.status_code == 200:
             return response.json()
         return {"status": "degraded"}
@@ -170,15 +131,7 @@ def check_api_health() -> dict:
 
 
 def send_chat_message(message: str) -> dict:
-    """
-    Send message to FastAPI /chat endpoint.
-
-    Args:
-        message: User's financial question
-
-    Returns:
-        ChatResponse dict with answer, sources, confidence, latency
-    """
+    """Send message to FastAPI /chat endpoint."""
     try:
         response = requests.post(
             f"{BACKEND_URL}/chat",
@@ -199,7 +152,7 @@ def send_chat_message(message: str) -> dict:
         }
     except requests.exceptions.Timeout:
         return {
-            "answer": "⏱️ Request timed out. The model is still loading — please try again in a few seconds.",
+            "answer": "⏱️ Request timed out. Please try again in a few seconds.",
             "sources": [],
             "confidence": 0.0,
             "latency_ms": 0,
@@ -231,31 +184,10 @@ def get_index_data() -> dict:
 
 
 # ============================================================
-# CONFIDENCE COLOR
-# ============================================================
-def confidence_color(score: float) -> str:
-    """Return CSS class based on confidence score."""
-    if score >= 0.80:
-        return "conf-high"
-    elif score >= 0.60:
-        return "conf-medium"
-    return "conf-low"
-
-
-def confidence_emoji(score: float) -> str:
-    """Return emoji based on confidence score."""
-    if score >= 0.80:
-        return "🟢"
-    elif score >= 0.60:
-        return "🟡"
-    return "🔴"
-
-
-# ============================================================
 # SIDEBAR
 # ============================================================
 def render_sidebar():
-    """Render the sidebar with stats, sources, and market data."""
+    """Render the sidebar with stats and market data."""
     with st.sidebar:
 
         # ── Logo & Title ──────────────────────────────────────
@@ -292,43 +224,6 @@ def render_sidebar():
             )
             st.metric("Avg Speed", f"{avg_latency}ms")
 
-        if st.session_state.total_queries > 0:
-            avg_conf = (
-                st.session_state.total_confidence /
-                st.session_state.total_queries
-            )
-            st.metric(
-                "Avg Confidence",
-                f"{confidence_emoji(avg_conf)} {avg_conf:.2f}"
-            )
-
-        st.markdown("---")
-
-        # ── Last Response Sources ─────────────────────────────
-        st.markdown("### 📄 Sources Used")
-        if st.session_state.last_sources:
-            for src in st.session_state.last_sources:
-                score = src.get("relevance_score", 0)
-                fname = src.get("file_name", "unknown")
-                page  = src.get("page_number", "?")
-                # Shorten filename
-                short_name = fname.replace(".pdf.pdf", ".pdf")
-                short_name = (
-                    short_name[:25] + "..."
-                    if len(short_name) > 25
-                    else short_name
-                )
-                st.markdown(
-                    f"<div class='source-card'>"
-                    f"📄 <b>{short_name}</b><br>"
-                    f"Page {page} • Score: {score:.2f}"
-                    f"</div>",
-                    unsafe_allow_html=True
-                )
-                st.progress(max(0.0, min(score / 10.0, 1.0)))
-        else:
-            st.caption("Sources will appear after your first question.")
-
         st.markdown("---")
 
         # ── Market Snapshot ───────────────────────────────────
@@ -343,7 +238,6 @@ def render_sidebar():
             if nifty.get("current_price"):
                 chg  = nifty.get("change_percent", 0)
                 sign = "▲" if chg >= 0 else "▼"
-                col  = "🟢" if chg >= 0 else "🔴"
                 st.metric(
                     "Nifty 50",
                     f"{nifty['current_price']:,.0f}",
@@ -367,31 +261,23 @@ def render_sidebar():
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🗑️ Clear Chat", use_container_width=True):
-                st.session_state.messages        = []
-                st.session_state.total_queries   = 0
-                st.session_state.total_latency_ms= 0
-                st.session_state.total_confidence= 0.0
-                st.session_state.last_sources    = []
-                st.session_state.session_id      = str(uuid.uuid4())
+                st.session_state.messages         = []
+                st.session_state.total_queries    = 0
+                st.session_state.total_latency_ms = 0
+                st.session_state.total_confidence = 0.0
+                st.session_state.last_sources     = []
+                st.session_state.session_id       = str(uuid.uuid4())
                 st.rerun()
 
         with col2:
             if st.session_state.messages:
-                # Build download content
-                chat_export = f"FinBot Chat Export\n{'='*40}\n"
+                chat_export  = f"FinBot Chat Export\n{'='*40}\n"
                 chat_export += f"Session: {st.session_state.session_id}\n"
                 chat_export += f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
                 chat_export += "="*40 + "\n\n"
                 for msg in st.session_state.messages:
                     role = "You" if msg["role"] == "user" else "FinBot"
                     chat_export += f"{role}:\n{msg['content']}\n\n"
-                    if msg.get("sources"):
-                        chat_export += "Sources:\n"
-                        for s in msg["sources"]:
-                            chat_export += (
-                                f"  - {s['file_name']} "
-                                f"p.{s['page_number']}\n"
-                            )
                     chat_export += "-"*40 + "\n\n"
 
                 st.download_button(
@@ -411,22 +297,12 @@ def render_sidebar():
 # MAIN CHAT AREA
 # ============================================================
 def render_header():
-    """Render the main page header."""
+    """Render the main page header — no disclaimer."""
     st.markdown(
         "<div class='finbot-header'>"
         "<p class='finbot-title'>💰 FinBot</p>"
         "<p class='finbot-tagline'>AI-Powered Financial Advisor for India • "
         "Budgeting • Investing • Taxation • Insurance • Loans</p>"
-        "</div>",
-        unsafe_allow_html=True
-    )
-
-    # Disclaimer banner
-    st.markdown(
-        "<div class='disclaimer-banner'>"
-        "⚠️ <b>Disclaimer:</b> FinBot provides AI-generated financial information "
-        "for educational purposes only. Always consult a SEBI-registered advisor "
-        "before making investment decisions."
         "</div>",
         unsafe_allow_html=True
     )
@@ -451,47 +327,16 @@ def render_starter_chips():
 
 
 def render_chat_history():
-    """Render all chat messages from session state."""
+    """Render all chat messages — answer only, no sources/confidence/latency."""
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-
-            # Show sources and confidence for assistant messages
-            if msg["role"] == "assistant" and msg.get("sources"):
-                conf  = msg.get("confidence", 0)
-                latency = msg.get("latency_ms", 0)
-
-                # Confidence + latency row
-                col1, col2 = st.columns([1, 3])
-                with col1:
-                    color_class = confidence_color(conf)
-                    st.markdown(
-                        f"<span class='{color_class}'>"
-                        f"{confidence_emoji(conf)} Confidence: {conf:.2f}"
-                        f"</span>",
-                        unsafe_allow_html=True
-                    )
-                with col2:
-                    st.caption(f"⚡ Response time: {latency}ms")
-
-                # Sources expander
-                with st.expander("📚 View Sources"):
-                    for src in msg["sources"]:
-                        fname = src.get("file_name", "?").replace(".pdf.pdf", ".pdf")
-                        page  = src.get("page_number", "?")
-                        score = src.get("relevance_score", 0)
-                        st.markdown(
-                            f"📄 **{fname}** — Page {page} "
-                            f"*(relevance: {score:.2f})*"
-                        )
 
 
 def process_message(user_input: str):
     """
     Process a user message through the RAG pipeline.
-
-    Args:
-        user_input: The user's financial question
+    Shows only the answer — no sources, confidence, or latency.
     """
     if not user_input or not user_input.strip():
         return
@@ -516,35 +361,10 @@ def process_message(user_input: str):
         confidence = result.get("confidence", 0.0)
         latency_ms = result.get("latency_ms", 0)
 
-        # Display answer
+        # ✅ Show answer ONLY — sources, confidence, latency all hidden
         st.markdown(answer)
 
-        # Display confidence + latency
-        if sources:
-            col1, col2 = st.columns([1, 3])
-            with col1:
-                color_class = confidence_color(confidence)
-                st.markdown(
-                    f"<span class='{color_class}'>"
-                    f"{confidence_emoji(confidence)} Confidence: {confidence:.2f}"
-                    f"</span>",
-                    unsafe_allow_html=True
-                )
-            with col2:
-                st.caption(f"⚡ Response time: {latency_ms}ms")
-
-            # Show sources
-            with st.expander("📚 View Sources"):
-                for src in sources:
-                    fname = src.get("file_name", "?").replace(".pdf.pdf", ".pdf")
-                    page  = src.get("page_number", "?")
-                    score = src.get("relevance_score", 0)
-                    st.markdown(
-                        f"📄 **{fname}** — Page {page} "
-                        f"*(relevance: {score:.2f})*"
-                    )
-
-    # Update session state
+    # Save to session state (stored internally, never shown)
     st.session_state.messages.append({
         "role": "assistant",
         "content": answer,
@@ -553,12 +373,11 @@ def process_message(user_input: str):
         "latency_ms": latency_ms,
     })
 
-    # Update stats
+    # Update internal stats only
     st.session_state.total_queries    += 1
     st.session_state.total_latency_ms += latency_ms
     st.session_state.total_confidence += confidence
     st.session_state.last_sources      = sources
-    st.session_state.last_confidence   = confidence
 
 
 # ============================================================
@@ -570,7 +389,7 @@ def main():
     # Render sidebar
     render_sidebar()
 
-    # Render header
+    # Render header — disclaimer removed
     render_header()
 
     # Show starter chips only if no messages yet
@@ -578,17 +397,17 @@ def main():
         render_starter_chips()
         st.markdown("---")
 
-    # Render existing chat history
+    # Render chat history — answer only
     render_chat_history()
 
-    # Handle chip query (clicked starter button)
+    # Handle chip query
     if st.session_state.chip_query:
         query = st.session_state.chip_query
         st.session_state.chip_query = None
         process_message(query)
         st.rerun()
 
-    # Chat input box
+    # Chat input
     user_input = st.chat_input(
         "Ask FinBot about budgeting, investing, taxes, insurance, or loans..."
     )
