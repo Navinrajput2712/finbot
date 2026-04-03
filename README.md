@@ -337,33 +337,6 @@ Fine-tune LLaMA 3.1 8B on your 68,912 financial Q&A dataset using Google Colab:
 
 Training time: ~3-4 hours on T4 GPU
 
----
-
-## 📚 Reference Repositories
-
-| Repo | Purpose |
-|------|---------|
-| [RAG + LLaMA 3 + ChromaDB](https://github.com/GURPREETKAURJETHRA/RAG-using-Llama3-Langchain-and-ChromaDB) | RAG pipeline patterns |
-| [FastAPI + LangChain + ChromaDB](https://github.com/Zlash65/rag-bot-fastapi) | Production backend structure |
-| [Conversational Memory](https://github.com/FarazF19/Conversational-QnA-Chatbot) | Multi-turn session memory |
-| [NVIDIA NIM Examples](https://github.com/NVIDIA/nim-deploy) | NIM API integration |
-| [Streamlit LLM Examples](https://github.com/streamlit/llm-examples) | Chat UI patterns |
-| [LlamaFactory](https://github.com/hiyouga/LlamaFactory) | QLoRA fine-tuning |
-
----
-
-## 📄 Resume Bullets
-
-**FinBot — AI Financial Advisory Chatbot** | Python, LangChain, LLaMA 3.1 8B, NVIDIA NIM, FastAPI, Streamlit, ChromaDB
-
-- Built production RAG pipeline using LangChain + ChromaDB + BAAI/bge-base-en-v1.5 embeddings with cross-encoder reranking; ingested 68,912 financial Q&A pairs + 6 domain PDFs into 71,437 indexed chunks; connected to LLaMA 3.1-8B-Instruct via NVIDIA NIM API achieving confidence score of 0.87+ across 5 Indian financial domains
-
-- Developed async FastAPI backend with `/chat`, `/health`, `/market` endpoints featuring session memory, live Nifty/Sensex market data via yfinance, and query routing between static knowledge and live market data
-
-- Containerised full-stack application with Docker + docker-compose; built Streamlit multi-turn chat UI covering budgeting, investing, taxation, insurance, and loans with 71K+ knowledge base chunks from RBI, SEBI, Income Tax, AMFI, and IRDAI sources
-
----
-
 ## ⚠️ Disclaimer
 
 FinBot provides AI-generated financial information for educational purposes only. Always consult a SEBI-registered investment advisor or certified financial planner before making any financial decisions.
