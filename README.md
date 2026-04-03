@@ -191,43 +191,4 @@ docker-compose up --build
 | POST | /ingest | Upload PDF to knowledge base |
 | GET | /docs | Swagger UI |
 
----
-
-## 📚 Reference Repositories
-
-1. RAG + LLaMA 3 + ChromaDB:
-   https://github.com/GURPREETKAURJETHRA/RAG-using-Llama3-Langchain-and-ChromaDB
-
-2. FastAPI + LangChain + ChromaDB production:
-   https://github.com/Zlash65/rag-bot-fastapi
-
-3. Multi-turn conversational memory:
-   https://github.com/FarazF19/Conversational-QnA-Chatbot
-
-4. NVIDIA NIM Python examples:
-   https://github.com/NVIDIA/nim-deploy
-
-5. Streamlit LLM chat UI patterns:
-   https://github.com/streamlit/llm-examples
-
----
-
-## 📄 Resume Bullets
-
-**FinBot — AI Financial Advisory Chatbot** | Python, LangChain, LLaMA 3.1, NVIDIA NIM, FastAPI, Streamlit, ChromaDB
-
-- Built production RAG pipeline using LangChain + ChromaDB + BAAI/bge-base-en-v1.5 embeddings with cross-encoder reranking; connected to LLaMA 3.1-8B-Instruct via NVIDIA NIM API achieving < 2s average response latency and < 5% hallucination rate across 20 test queries
-
-- Developed async FastAPI backend with /chat, /health, /market endpoints + Streamlit multi-turn chat UI with source citations, confidence scoring, session memory, and live Nifty/Sensex market data via yfinance
-
-- Containerised full-stack application with Docker + docker-compose covering 5 Indian financial domains (budgeting, investing, taxation, insurance, loans) with curated RBI/SEBI/ITD knowledge base of 2500+ indexed chunks
-
----
-
-## ⚠️ Disclaimer
-
-FinBot is for educational purposes only. Always consult a SEBI-registered investment advisor before making financial decisions.
-
----
-
 *Built with ❤️ using NVIDIA NIM + LLaMA 3.1 8B + LangChain + ChromaDB*
