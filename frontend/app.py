@@ -126,20 +126,24 @@ init_session_state()
 # ============================================================
 def check_api_health() -> dict:
     """Check if FastAPI backend is healthy."""
+    url = f"{BACKEND_URL}/health"
     try:
-        response = requests.get(f"{BACKEND_URL}/health", timeout=5)
+        response = requests.get(url, timeout=5)
+        print(f"[FRONTEND LOG] GET {url} | Status: {response.status_code} | Body Preview: {response.text[:200]}")
         if response.status_code == 200:
             return response.json()
         return {"status": "degraded"}
-    except Exception:
+    except Exception as e:
+        print(f"[FRONTEND LOG] GET {url} | Failed: {str(e)}")
         return {"status": "offline"}
 
 
 def send_chat_message(message: str) -> dict:
     """Send message to FastAPI /chat endpoint."""
+    url = f"{BACKEND_URL}/chat"
     try:
         response = requests.post(
-            f"{BACKEND_URL}/chat",
+            url,
             json={
                 "message": message,
                 "session_id": st.session_state.session_id,
@@ -147,6 +151,7 @@ def send_chat_message(message: str) -> dict:
             },
             timeout=60,
         )
+        print(f"[FRONTEND LOG] POST {url} | Status: {response.status_code} | Body Preview: {response.text[:200]}")
         if response.status_code == 200:
             return response.json()
         return {
@@ -156,13 +161,15 @@ def send_chat_message(message: str) -> dict:
             "latency_ms": 0,
         }
     except requests.exceptions.Timeout:
+        print(f"[FRONTEND LOG] POST {url} | Timeout")
         return {
             "answer": "⏱️ Request timed out. Please try again in a few seconds.",
             "sources": [],
             "confidence": 0.0,
             "latency_ms": 0,
         }
-    except requests.exceptions.ConnectionError:
+    except requests.exceptions.ConnectionError as e:
+        print(f"[FRONTEND LOG] POST {url} | ConnectionError: {str(e)}")
         return {
             "answer": f"❌ Cannot connect to FinBot API at {BACKEND_URL}. Make sure the backend is running and accessible.",
             "sources": [],
@@ -170,6 +177,7 @@ def send_chat_message(message: str) -> dict:
             "latency_ms": 0,
         }
     except Exception as e:
+        print(f"[FRONTEND LOG] POST {url} | Unexpected Error: {str(e)}")
         return {
             "answer": f"❌ Unexpected error: {str(e)}",
             "sources": [],
@@ -180,11 +188,20 @@ def send_chat_message(message: str) -> dict:
 
 def get_index_data() -> dict:
     """Fetch Nifty and Sensex data from backend."""
+    nifty_url = f"{BACKEND_URL}/market/%5ENSEI"
+    sensex_url = f"{BACKEND_URL}/market/%5EBSESN"
     try:
-        nifty  = requests.get(f"{BACKEND_URL}/market/%5ENSEI",  timeout=5).json()
-        sensex = requests.get(f"{BACKEND_URL}/market/%5EBSESN", timeout=5).json()
+        nifty_res = requests.get(nifty_url,  timeout=5)
+        print(f"[FRONTEND LOG] GET {nifty_url} | Status: {nifty_res.status_code}")
+        nifty = nifty_res.json()
+        
+        sensex_res = requests.get(sensex_url, timeout=5)
+        print(f"[FRONTEND LOG] GET {sensex_url} | Status: {sensex_res.status_code}")
+        sensex = sensex_res.json()
+        
         return {"nifty": nifty, "sensex": sensex}
-    except Exception:
+    except Exception as e:
+        print(f"[FRONTEND LOG] GET market indices failed: {str(e)}")
         return {}
 
 
