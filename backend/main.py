@@ -12,7 +12,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -85,6 +85,14 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+# ── Logging Middleware ────────────────────────────────────────
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger.info(f"[BACKEND LOG] Incoming Request: {request.method} {request.url.path}")
+    response = await call_next(request)
+    logger.info(f"[BACKEND LOG] Outgoing Response: {request.method} {request.url.path} | Status: {response.status_code}")
+    return response
 
 # ── CORS Middleware ──────────────────────────────────────────
 origins = [
