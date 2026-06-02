@@ -8,13 +8,18 @@ Usage:
     python evaluation/evaluate.py
 """
 
+import os
 import json
 import time
 import requests
 from pathlib import Path
 from datetime import datetime
+from dotenv import load_dotenv
 
-BACKEND_URL = "http://localhost:8000"
+# Load environment variables
+load_dotenv()
+
+BACKEND_URL = os.getenv("BACKEND_URL", "https://finbot-0.onrender.com")
 
 # ============================================================
 # 20 TEST QUERIES — 4 per domain
@@ -59,8 +64,7 @@ def run_evaluation():
     try:
         r = requests.get(f"{BACKEND_URL}/health", timeout=5)
         if r.status_code != 200:
-            print("❌ Backend not running! Start with:")
-            print("   uvicorn backend.main:app --reload --port 8000")
+            print(f"❌ Backend at {BACKEND_URL} is not responding with 200 OK!")
             return
         print("✅ Backend connected\n")
     except Exception:

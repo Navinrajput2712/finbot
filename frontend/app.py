@@ -8,15 +8,20 @@ Usage:
     streamlit run frontend/app.py
 """
 
+import os
 import uuid
 import requests
 import streamlit as st
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
-BACKEND_URL  = "http://localhost:8000"
+BACKEND_URL  = os.getenv("BACKEND_URL", "https://finbot-0.onrender.com")
 APP_TITLE    = "FinBot 💰"
 APP_TAGLINE  = "AI-Powered Financial Advisor for India"
 
@@ -159,7 +164,7 @@ def send_chat_message(message: str) -> dict:
         }
     except requests.exceptions.ConnectionError:
         return {
-            "answer": "❌ Cannot connect to FinBot API. Make sure the backend is running:\n`uvicorn backend.main:app --reload --port 8000`",
+            "answer": f"❌ Cannot connect to FinBot API at {BACKEND_URL}. Make sure the backend is running and accessible.",
             "sources": [],
             "confidence": 0.0,
             "latency_ms": 0,
@@ -208,7 +213,7 @@ def render_sidebar():
             st.warning("⚠️ API Degraded")
         else:
             st.error("❌ API Offline")
-            st.caption("Run: `uvicorn backend.main:app --port 8000`")
+            st.caption(f"Backend: {BACKEND_URL}")
 
         st.markdown("---")
 

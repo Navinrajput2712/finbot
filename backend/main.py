@@ -87,9 +87,20 @@ app = FastAPI(
 )
 
 # ── CORS Middleware ──────────────────────────────────────────
+origins = [
+    "https://finbot-8.onrender.com",
+    "http://localhost:8501",  # Streamlit default
+    "http://localhost:8000",
+]
+
+# Allow additional origins from environment variables if specified
+cors_origins_env = os.getenv("CORS_ORIGINS")
+if cors_origins_env:
+    origins.extend([o.strip() for o in cors_origins_env.split(",")])
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],       # Allow all origins for development
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
