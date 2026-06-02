@@ -21,7 +21,7 @@ load_dotenv()
 # ============================================================
 # CONFIGURATION
 # ============================================================
-BACKEND_URL  = os.getenv("BACKEND_URL", "https://finbot-0.onrender.com")
+BACKEND_URL  = os.getenv("BACKEND_URL", "https://finbot-0.onrender.com").rstrip("/")
 APP_TITLE    = "FinBot 💰"
 APP_TAGLINE  = "AI-Powered Financial Advisor for India"
 

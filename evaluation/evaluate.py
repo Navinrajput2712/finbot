@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-BACKEND_URL = os.getenv("BACKEND_URL", "https://finbot-0.onrender.com")
+BACKEND_URL = os.getenv("BACKEND_URL", "https://finbot-0.onrender.com").rstrip("/")
 
 # ============================================================
 # 20 TEST QUERIES — 4 per domain

@@ -23,9 +23,6 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # CONFIGURATION
 # ============================================================
-NVIDIA_API_KEY   = os.getenv("NVIDIA_API_KEY")
-NVIDIA_BASE_URL  = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-NVIDIA_MODEL     = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
 MAX_HISTORY      = 10   # last 5 turns = 10 messages
 MAX_CONTEXT_DOCS = 4
 
@@ -44,15 +41,18 @@ def get_nim_client() -> OpenAI:
     Raises:
         ValueError: If NVIDIA_API_KEY is missing
     """
-    if not NVIDIA_API_KEY:
+    api_key = os.getenv("NVIDIA_API_KEY")
+    base_url = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+
+    if not api_key:
         raise ValueError(
-            "NVIDIA_API_KEY not found in .env file!\n"
+            "NVIDIA_API_KEY not found in environment or .env file!\n"
             "Get your free key at: https://build.nvidia.com"
         )
 
     client = OpenAI(
-        base_url=NVIDIA_BASE_URL,
-        api_key=NVIDIA_API_KEY
+        base_url=base_url,
+        api_key=api_key
     )
     return client
 
@@ -277,10 +277,11 @@ def ask_finbot(
 
         # Step 5: Call NVIDIA NIM API
         client = get_nim_client()
-        logger.info(f"Calling NVIDIA NIM: {NVIDIA_MODEL}")
+        model = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
+        logger.info(f"Calling NVIDIA NIM: {model}")
 
         response = client.chat.completions.create(
-            model=NVIDIA_MODEL,
+            model=model,
             messages=messages,
             temperature=0.3,
             max_tokens=1024,
@@ -317,12 +318,13 @@ def ask_finbot(
             "sources": sources,
             "confidence": confidence,
             "latency_ms": latency_ms,
-            "model": NVIDIA_MODEL,
+            "model": model,
         }
 
     except Exception as e:
         latency_ms = int((time.time() - start_time) * 1000)
         logger.error(f"❌ Pipeline error: {str(e)}")
+        model = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
         return {
             "answer": (
                 "I encountered an error processing your request. "
@@ -333,7 +335,7 @@ def ask_finbot(
             "sources": [],
             "confidence": 0.0,
             "latency_ms": latency_ms,
-            "model": NVIDIA_MODEL,
+            "model": model,
             "error": str(e),
         }
 

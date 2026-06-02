@@ -17,11 +17,6 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-NVIDIA_API_KEY  = os.getenv("NVIDIA_API_KEY")
-NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
-NVIDIA_MODEL    = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
-
-
 def get_nim_client() -> OpenAI:
     """
     Initialize and return NVIDIA NIM OpenAI-compatible client.
@@ -32,18 +27,22 @@ def get_nim_client() -> OpenAI:
     Raises:
         ValueError: If NVIDIA_API_KEY is missing from .env
     """
-    if not NVIDIA_API_KEY:
+    api_key = os.getenv("NVIDIA_API_KEY")
+    base_url = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+    model = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
+
+    if not api_key:
         raise ValueError(
             "NVIDIA_API_KEY not found!\n"
-            "Add it to your .env file.\n"
+            "Add it to your environment variables or .env file.\n"
             "Get free key at: https://build.nvidia.com"
         )
 
     client = OpenAI(
-        base_url=NVIDIA_BASE_URL,
-        api_key=NVIDIA_API_KEY
+        base_url=base_url,
+        api_key=api_key
     )
-    logger.info(f"NVIDIA NIM client initialized — model: {NVIDIA_MODEL}")
+    logger.info(f"NVIDIA NIM client initialized — model: {model}")
     return client
 
 
@@ -56,8 +55,9 @@ def test_nim_connection() -> bool:
     """
     try:
         client = get_nim_client()
+        model = os.getenv("NVIDIA_MODEL", "meta/llama-3.1-8b-instruct")
         response = client.chat.completions.create(
-            model=NVIDIA_MODEL,
+            model=model,
             messages=[{"role": "user", "content": "Reply with: OK"}],
             max_tokens=10,
             temperature=0.1,
