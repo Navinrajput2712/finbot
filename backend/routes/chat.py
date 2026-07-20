@@ -9,6 +9,9 @@ Endpoint:
 """
 
 import logging
+import os
+import time
+from collections import OrderedDict
 from typing import Dict, List
 from fastapi import APIRouter, Request, HTTPException
 
@@ -19,18 +22,43 @@ from backend.market_data import get_stock_data, extract_ticker_from_query
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ── In-memory session store ──────────────────────────────────
-# Stores conversation history per session_id
-# Format: { session_id: [ {"role": ..., "content": ...}, ... ] }
-session_store: Dict[str, List[dict]] = {}
+# ── In-memory session store with TTL and max-size eviction ───
+# NOTE: For multi-instance deployments (e.g. multiple Render services),
+# replace this with Redis or another shared cache.
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
+SESSION_STORE_MAX_SIZE = int(os.getenv("SESSION_STORE_MAX_SIZE", "1000"))
+
+# Each value is a dict: {"messages": [...], "last_accessed": float}
+session_store: OrderedDict[str, dict] = OrderedDict()
 
 MAX_HISTORY = 10  # Last 5 turns = 10 messages
+
+
+def _evict_expired() -> None:
+    """Remove sessions that have exceeded the TTL."""
+    now = time.time()
+    expired = [
+        sid for sid, entry in session_store.items()
+        if now - entry["last_accessed"] > SESSION_TTL_SECONDS
+    ]
+    for sid in expired:
+        del session_store[sid]
+    if expired:
+        logger.info("Evicted %d expired sessions", len(expired))
+
+
+def _enforce_max_size() -> None:
+    """Evict least-recently-used entries when the store exceeds max size."""
+    while len(session_store) > SESSION_STORE_MAX_SIZE:
+        evicted_sid, _ = session_store.popitem(last=False)
+        logger.info("Evicted LRU session: %s", evicted_sid)
 
 
 def get_session_history(session_id: str) -> List[dict]:
     """
     Retrieve conversation history for a session.
     Returns last 5 turns (10 messages) maximum.
+    Updates last_accessed timestamp and evicts stale entries.
 
     Args:
         session_id: Unique session identifier
@@ -38,9 +66,17 @@ def get_session_history(session_id: str) -> List[dict]:
     Returns:
         List of message dicts with role and content
     """
+    _evict_expired()
+
     if session_id not in session_store:
-        session_store[session_id] = []
-    return session_store[session_id][-MAX_HISTORY:]
+        session_store[session_id] = {"messages": [], "last_accessed": time.time()}
+        _enforce_max_size()
+
+    entry = session_store[session_id]
+    entry["last_accessed"] = time.time()
+    session_store.move_to_end(session_id)
+
+    return entry["messages"][-MAX_HISTORY:]
 
 
 def update_session(
@@ -57,18 +93,18 @@ def update_session(
         bot_message: FinBot's response
     """
     if session_id not in session_store:
-        session_store[session_id] = []
+        session_store[session_id] = {"messages": [], "last_accessed": time.time()}
+        _enforce_max_size()
 
-    session_store[session_id].append(
-        {"role": "user", "content": user_message}
-    )
-    session_store[session_id].append(
-        {"role": "assistant", "content": bot_message}
-    )
+    entry = session_store[session_id]
+    entry["messages"].append({"role": "user", "content": user_message})
+    entry["messages"].append({"role": "assistant", "content": bot_message})
+    entry["last_accessed"] = time.time()
+    session_store.move_to_end(session_id)
 
     # Keep only last MAX_HISTORY messages
-    if len(session_store[session_id]) > MAX_HISTORY:
-        session_store[session_id] = session_store[session_id][-MAX_HISTORY:]
+    if len(entry["messages"]) > MAX_HISTORY:
+        entry["messages"] = entry["messages"][-MAX_HISTORY:]
 
 
 @router.post("/chat", response_model=ChatResponse)

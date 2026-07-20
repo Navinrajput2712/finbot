@@ -8,7 +8,7 @@ FROM python:3.11-slim
 # Set working directory
 WORKDIR /app
 
-# Install system dependencies (required for PyMuPDF)
+# Install system dependencies (required for PyMuPDF + chroma_db download)
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y \
     libxrender-dev \
     libgomp1 \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first (layer caching)
@@ -30,8 +31,22 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY backend/ ./backend/
 COPY rag/ ./rag/
 COPY data/ ./data/
-COPY chroma_db/ ./chroma_db/
-COPY .env .env
+
+# .env is intentionally NOT copied — environment variables are provided by
+# the hosting platform (Render, etc.) at runtime. load_dotenv() in the app
+# is a safe no-op when no .env file exists.
+
+# Download and extract the ChromaDB vectorstore at build time.
+# chroma_db/ is too large for git; provide the zip URL as a build ARG.
+ARG CHROMA_DB_ZIP_URL
+RUN if [ -z "$CHROMA_DB_ZIP_URL" ]; then \
+      echo "ERROR: CHROMA_DB_ZIP_URL is not set." >&2; \
+      echo "Pass it via: docker build --build-arg CHROMA_DB_ZIP_URL=<url>" >&2; \
+      exit 1; \
+    fi && \
+    curl -L -o /tmp/chroma_db.zip "$CHROMA_DB_ZIP_URL" && \
+    unzip /tmp/chroma_db.zip -d /app && \
+    rm /tmp/chroma_db.zip
 
 # Expose port
 EXPOSE 8000

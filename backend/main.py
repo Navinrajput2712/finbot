@@ -10,9 +10,10 @@ Usage:
 
 import os
 import logging
+import secrets
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, Request
+from fastapi import FastAPI, UploadFile, File, Request, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -50,6 +51,14 @@ async def lifespan(app: FastAPI):
         logger.error("   Run: python -m rag.ingest first!")
         app.state.vectorstore = None
 
+    # Warm up cross-encoder reranker (cached for all subsequent requests)
+    try:
+        from rag.retriever import get_reranker
+        get_reranker()
+        logger.info("✅ Cross-encoder reranker warmed up")
+    except Exception as e:
+        logger.error(f"❌ Failed to load reranker: {str(e)}")
+
     # Verify NVIDIA NIM connection
     try:
         from backend.llm_loader import test_nim_connection
@@ -63,7 +72,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"❌ NVIDIA NIM test failed: {str(e)}")
 
     logger.info("✅ FinBot API ready!")
-    logger.info("   Docs: http://localhost:8000/docs")
+    backend_host = os.getenv("BACKEND_HOST", "0.0.0.0")
+    backend_port = os.getenv("PORT", os.getenv("BACKEND_PORT", "8000"))
+    logger.info(f"   Listening on: http://{backend_host}:{backend_port}")
     logger.info("="*50)
 
     yield  # App runs here
@@ -166,10 +177,35 @@ async def get_market_data(ticker: str) -> dict:
 # INGEST ENDPOINT (Admin)
 # ============================================================
 
+async def verify_admin_key(x_admin_key: str = Header(...)) -> None:
+    """
+    Dependency that verifies the X-Admin-Key header against the
+    ADMIN_API_KEY environment variable. Returns 401 if missing or mismatched.
+    """
+    expected = os.getenv("ADMIN_API_KEY")
+    if not expected:
+        raise HTTPException(
+            status_code=500,
+            detail="ADMIN_API_KEY is not configured on the server"
+        )
+    if not x_admin_key or not secrets.compare_digest(x_admin_key, expected):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing admin API key"
+        )
+
+
 @app.post("/ingest")
-async def ingest_pdf(file: UploadFile = File(...)) -> dict:
+async def ingest_pdf(
+    file: UploadFile = File(...),
+    _admin: None = Depends(verify_admin_key),
+) -> dict:
     """
     Admin endpoint — upload a PDF and add it to ChromaDB.
+
+    Requires the ``X-Admin-Key`` header to match the ``ADMIN_API_KEY``
+    environment variable.  If ``ADMIN_API_KEY`` is not set the endpoint
+    refuses all requests.
 
     Args:
         file: PDF file to ingest
@@ -227,9 +263,11 @@ async def ingest_pdf(file: UploadFile = File(...)) -> dict:
 
 if __name__ == "__main__":
     import uvicorn
+    # Render injects $PORT — always prefer it over hardcoded BACKEND_PORT
+    port = int(os.getenv("PORT", os.getenv("BACKEND_PORT", "8000")))
     uvicorn.run(
         "backend.main:app",
         host=os.getenv("BACKEND_HOST", "0.0.0.0"),
-        port=int(os.getenv("BACKEND_PORT", 8000)),
-        reload=True,
+        port=port,
+        reload=False,
     )

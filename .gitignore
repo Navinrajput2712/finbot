@@ -19,7 +19,7 @@ build/
 venv/
 env/
 
-# ChromaDB — large vector store, don't commit
+# ChromaDB — too large for git; downloaded at Docker build time
 chroma_db/
 
 # Large model files
@@ -45,5 +45,6 @@ logs/
 
 # Test outputs
 evaluation/results/
-*.json
-!.env.example
+
+# Large data files — exclude the raw training CSV (68K rows, too large)
+data/financial_dataset.csv

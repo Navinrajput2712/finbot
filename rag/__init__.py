@@ -8,7 +8,7 @@ RAG pipeline components:
 """
 
 from rag.ingest import load_documents, split_documents, create_vectorstore
-from rag.retriever import load_vectorstore, retrieve_and_rerank
+from rag.retriever import load_vectorstore, retrieve_and_rerank, get_reranker
 from rag.pipeline import ask_finbot, is_market_query
 
 __all__ = [
@@ -17,6 +17,7 @@ __all__ = [
     "create_vectorstore",
     "load_vectorstore",
     "retrieve_and_rerank",
+    "get_reranker",
     "ask_finbot",
     "is_market_query",
 ]

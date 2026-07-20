@@ -25,6 +25,25 @@ CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "finbot_knowledge")
 EMBEDDING_MODEL = "BAAI/bge-base-en-v1.5"
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
+# Cached cross-encoder reranker instance (loaded once, reused across requests)
+_reranker = None
+
+
+def get_reranker():
+    """
+    Return the cached CrossEncoder reranker, loading it on first call.
+
+    Returns:
+        CrossEncoder instance
+    """
+    global _reranker
+    if _reranker is None:
+        from sentence_transformers import CrossEncoder
+        logger.info("Loading cross-encoder reranker model: %s", RERANKER_MODEL)
+        _reranker = CrossEncoder(RERANKER_MODEL)
+        logger.info("Cross-encoder reranker loaded and cached")
+    return _reranker
+
 
 # ============================================================
 # LOAD VECTORSTORE
@@ -128,8 +147,8 @@ def rerank_documents(
 
     logger.info(f"Reranking {len(documents)} documents with cross-encoder...")
 
-    # Load cross-encoder model (~100MB download on first run)
-    reranker = CrossEncoder(RERANKER_MODEL)
+    # Use cached cross-encoder model
+    reranker = get_reranker()
 
     # Create query-document pairs for scoring
     pairs = [[query, doc.page_content] for doc in documents]
