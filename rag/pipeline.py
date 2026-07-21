@@ -234,7 +234,8 @@ def ask_finbot(
     query: str,
     chat_history: List[Dict],
     vectorstore,
-    market_context: Optional[str] = None
+    market_context: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> Dict:
     """
     Main FinBot RAG pipeline function.
@@ -252,6 +253,7 @@ def ask_finbot(
         chat_history: Previous conversation turns
         vectorstore: Loaded ChromaDB vectorstore
         market_context: Optional live market data string to prepend
+        session_id: Optional session ID to search session-scoped uploaded docs
 
     Returns:
         Dict with keys: answer, sources, confidence, latency_ms, model
@@ -263,7 +265,9 @@ def ask_finbot(
     try:
         # Step 1 & 2: Retrieve + Rerank
         logger.info(f"Processing query: '{query[:80]}'")
-        documents = retrieve_and_rerank(query, vectorstore, k=6, top_n=4)
+        documents = retrieve_and_rerank(
+            query, vectorstore, k=6, top_n=4, session_id=session_id,
+        )
 
         # Step 3: Format context
         context = format_context(documents)

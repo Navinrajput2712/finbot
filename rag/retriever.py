@@ -4,13 +4,16 @@ FinBot — rag/retriever.py
 Loads ChromaDB vectorstore and provides retrieval with
 cross-encoder reranking for improved result quality.
 
+Supports merging results from the global knowledge base with
+a session-scoped collection (uploaded documents).
+
 Usage:
     from rag.retriever import load_vectorstore, retrieve_and_rerank
 """
 
 import os
 import logging
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -71,7 +74,7 @@ def load_vectorstore():
             f"Run: python rag/ingest.py"
         )
 
-    logger.info(f"Loading ChromaDB from: {CHROMA_DB_PATH}")
+    logger.info("Loading ChromaDB from: %s", CHROMA_DB_PATH)
 
     # Load embedding model
     embeddings = HuggingFaceEmbeddings(
@@ -95,8 +98,44 @@ def load_vectorstore():
             f"Run: python rag/ingest.py"
         )
 
-    logger.info(f"✅ ChromaDB loaded — {count} chunks available")
+    logger.info("ChromaDB loaded — %d chunks available", count)
     return vectorstore
+
+
+def _get_session_vectorstore(session_id: str):
+    """
+    Load a session-scoped Chroma collection if it exists.
+
+    Args:
+        session_id: The session identifier
+
+    Returns:
+        Chroma vectorstore or None if no session collection exists
+    """
+    from langchain_huggingface import HuggingFaceEmbeddings
+    from langchain_chroma import Chroma
+    import chromadb
+
+    collection_name = f"session_{session_id}"
+    try:
+        client = chromadb.PersistentClient(path=CHROMA_DB_PATH)
+        col = client.get_collection(collection_name)
+        if col.count() == 0:
+            return None
+    except Exception:
+        return None
+
+    embeddings = HuggingFaceEmbeddings(
+        model_name=EMBEDDING_MODEL,
+        model_kwargs={"device": "cpu"},
+        encode_kwargs={"normalize_embeddings": True},
+    )
+
+    return Chroma(
+        collection_name=collection_name,
+        embedding_function=embeddings,
+        persist_directory=CHROMA_DB_PATH,
+    )
 
 
 # ============================================================
@@ -118,7 +157,6 @@ def get_retriever(vectorstore, k: int = 6):
         search_type="similarity",
         search_kwargs={"k": k}
     )
-    logger.info(f"Retriever ready — top-{k} similarity search")
     return retriever
 
 
@@ -143,9 +181,7 @@ def rerank_documents(
     Returns:
         List of (Document, score) tuples sorted by relevance
     """
-    from sentence_transformers import CrossEncoder
-
-    logger.info(f"Reranking {len(documents)} documents with cross-encoder...")
+    logger.info("Reranking %d documents with cross-encoder...", len(documents))
 
     # Use cached cross-encoder model
     reranker = get_reranker()
@@ -169,11 +205,13 @@ def rerank_documents(
     for doc, score in top_docs:
         doc.metadata["rerank_score"] = float(score)
 
-    logger.info(f"✅ Reranking complete — top {top_n} docs selected")
+    logger.info("Reranking complete — top %d docs selected", top_n)
     for i, (doc, score) in enumerate(top_docs):
         logger.info(
-            f"  Rank {i+1}: score={score:.3f} | "
-            f"{doc.metadata.get('file_name','?')} p.{doc.metadata.get('page_number','?')}"
+            "  Rank %d: score=%.3f | %s p.%s",
+            i + 1, score,
+            doc.metadata.get("file_name", "?"),
+            doc.metadata.get("page_number", "?"),
         )
 
     return top_docs
@@ -187,35 +225,52 @@ def retrieve_and_rerank(
     query: str,
     vectorstore,
     k: int = 6,
-    top_n: int = 4
+    top_n: int = 4,
+    session_id: Optional[str] = None,
 ) -> list:
     """
     Full retrieval pipeline:
-    Step 1 — Retrieve top-k chunks from ChromaDB
+    Step 1 — Retrieve top-k chunks from global + session ChromaDB
     Step 2 — Rerank with cross-encoder
     Step 3 — Return top_n most relevant documents
 
     Args:
         query: User's financial question
-        vectorstore: Chroma vectorstore object
-        k: Initial retrieval count (retrieve more, rerank to fewer)
+        vectorstore: Global Chroma vectorstore object
+        k: Initial retrieval count per collection
         top_n: Final number of documents after reranking
+        session_id: Optional session ID to also search session collection
 
     Returns:
         List of top Document objects with rerank_score in metadata
     """
-    logger.info(f"Retrieving documents for: '{query[:80]}...'")
+    logger.info("Retrieving documents for: '%s'...", query[:80])
 
-    # Step 1: Initial retrieval from ChromaDB
+    # Step 1: Retrieve from global collection
     retriever = get_retriever(vectorstore, k=k)
     initial_docs = retriever.invoke(query)
-    logger.info(f"Retrieved {len(initial_docs)} initial documents")
+    logger.info("Retrieved %d documents from global collection", len(initial_docs))
+
+    # Also retrieve from session collection if it exists
+    if session_id:
+        session_vs = _get_session_vectorstore(session_id)
+        if session_vs:
+            session_retriever = get_retriever(session_vs, k=k)
+            session_docs = session_retriever.invoke(query)
+            logger.info(
+                "Retrieved %d documents from session collection '%s'",
+                len(session_docs), session_id,
+            )
+            # Mark session docs for source tracking
+            for doc in session_docs:
+                doc.metadata["source"] = "uploaded_document"
+            initial_docs.extend(session_docs)
 
     if not initial_docs:
         logger.warning("No documents retrieved from ChromaDB!")
         return []
 
-    # Step 2: Rerank
+    # Step 2: Rerank all documents together
     ranked_docs = rerank_documents(query, initial_docs, top_n=top_n)
 
     # Return just the documents (without scores)

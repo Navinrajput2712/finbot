@@ -40,6 +40,14 @@ async def lifespan(app: FastAPI):
     logger.info("  FinBot API — Starting up...")
     logger.info("="*50)
 
+    # Initialize SQLite database
+    try:
+        from backend.db import init_db
+        init_db()
+        logger.info("✅ SQLite database initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to init database: {str(e)}")
+
     # Load ChromaDB vectorstore
     try:
         from rag.retriever import load_vectorstore
@@ -126,11 +134,15 @@ app.add_middleware(
 )
 
 # ── Include Routers ──────────────────────────────────────────
-from backend.routes.chat   import router as chat_router
-from backend.routes.health import router as health_router
+from backend.routes.chat      import router as chat_router
+from backend.routes.health    import router as health_router
+from backend.routes.sessions  import router as sessions_router
+from backend.routes.upload    import router as upload_router
 
-app.include_router(chat_router,   tags=["Chat"])
-app.include_router(health_router, tags=["Health"])
+app.include_router(chat_router,      tags=["Chat"])
+app.include_router(health_router,    tags=["Health"])
+app.include_router(sessions_router,  tags=["Sessions"])
+app.include_router(upload_router,    tags=["Upload"])
 
 
 # ============================================================

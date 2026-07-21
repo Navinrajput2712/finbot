@@ -6,7 +6,7 @@ Pydantic v2 request/response models for all FastAPI endpoints.
 All API input validation and output formatting is handled here.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Any
 from pydantic import BaseModel, ConfigDict, field_validator
 
 
@@ -54,11 +54,6 @@ class ChatResponse(BaseModel):
     latency_ms: int
     session_id: str
     model: str
-    disclaimer: str = (
-        "⚠️ This is AI-generated information for educational purposes only. "
-        "Please consult a SEBI-registered investment advisor before making "
-        "any financial decisions."
-    )
 
 
 # ============================================================
@@ -109,3 +104,44 @@ class IngestResponse(BaseModel):
     message: str
     chunks_added: int
     collection_name: str
+
+
+# ============================================================
+# SESSION SCHEMAS
+# ============================================================
+
+class SessionSummary(BaseModel):
+    """Brief session info for the sidebar list."""
+    session_id: str
+    title: str
+    created_at: str
+    updated_at: str
+
+
+class SessionListResponse(BaseModel):
+    """Response model for GET /sessions."""
+    sessions: List[SessionSummary]
+
+
+class SessionMessagesResponse(BaseModel):
+    """Response model for GET /sessions/{id}/messages."""
+    session_id: str
+    title: str
+    messages: List[Any]
+
+
+class SessionRenameRequest(BaseModel):
+    """Request model for PATCH /sessions/{id}."""
+    title: str
+
+
+# ============================================================
+# UPLOAD SCHEMAS
+# ============================================================
+
+class UploadResponse(BaseModel):
+    """Response model for POST /upload."""
+    filename: str
+    chunk_count: int
+    page_count: int
+    status: str

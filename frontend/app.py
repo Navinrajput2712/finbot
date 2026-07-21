@@ -1,8 +1,8 @@
 """
 FinBot — frontend/app.py
 =========================
-Streamlit multi-turn chat UI for FinBot financial advisory chatbot.
-Connects to FastAPI backend at localhost:8000.
+Claude-style chat UI for the FinBot financial advisory chatbot.
+Connects to FastAPI backend for RAG-powered responses.
 
 Usage:
     streamlit run frontend/app.py
@@ -10,432 +10,660 @@ Usage:
 
 import os
 import uuid
+import time
 import requests
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 
-# Load environment variables
 load_dotenv()
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
-BACKEND_URL  = os.getenv("BACKEND_URL", "https://finbot-0.onrender.com").rstrip("/")
-APP_TITLE    = "FinBot 💰"
-APP_TAGLINE  = "AI-Powered Financial Advisor for India"
-
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+APP_TITLE = "FinBot"
+APP_TAGLINE = "AI-Powered Financial Advisor for India"
+MAX_FILE_SIZE = 20 * 1024 * 1024
+ALLOWED_TYPES = ["pdf", "docx", "txt", "csv"]
 
 # ============================================================
 # PAGE CONFIG
 # ============================================================
 st.set_page_config(
-    page_title="FinBot — AI Financial Advisor",
+    page_title="FinBot",
     page_icon="💰",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded",
 )
 
-
 # ============================================================
-# CUSTOM CSS
+# CUSTOM CSS — Claude-inspired clean design
 # ============================================================
 st.markdown("""
 <style>
-    /* Main background */
-    .main { background-color: #0f1117; }
+    /* ── Global ─────────────────────────────────────── */
+    .stApp { background: #faf9f7; }
+    [data-theme="dark"] .stApp { background: #1a1a1a; }
 
-    /* Header */
-    .finbot-header {
-        background: linear-gradient(135deg, #1a1f2e, #2d3748);
-        padding: 20px 30px;
-        border-radius: 12px;
-        margin-bottom: 20px;
-        border: 1px solid #2d3748;
-    }
-    .finbot-title {
-        font-size: 2.2rem;
-        font-weight: 800;
-        color: #f0b429;
-        margin: 0;
-    }
-    .finbot-tagline {
-        font-size: 1rem;
-        color: #a0aec0;
-        margin: 4px 0 0 0;
-    }
-
-    /* Chip buttons */
-    .stButton > button {
-        background: #1a2744;
-        color: #90cdf4;
-        border: 1px solid #2b4c7e;
-        border-radius: 20px;
-        padding: 4px 14px;
-        font-size: 0.82rem;
-        transition: all 0.2s;
-    }
-    .stButton > button:hover {
-        background: #2b4c7e;
-        color: white;
-        border-color: #63b3ed;
-    }
-
-    /* Sidebar */
+    /* ── Sidebar ────────────────────────────────────── */
     section[data-testid="stSidebar"] {
-        background: #1a1f2e;
-        border-right: 1px solid #2d3748;
+        background: #f5f3ef;
+        border-right: 1px solid #e5e2db;
+        padding-top: 1rem;
+    }
+    [data-theme="dark"] section[data-testid="stSidebar"] {
+        background: #202020;
+        border-right: 1px solid #333;
+    }
+    section[data-testid="stSidebar"] .stButton > button {
+        background: #1a1a1a;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        padding: 10px 16px;
+        font-weight: 600;
+        width: 100%;
+        transition: background 0.2s;
+    }
+    section[data-testid="stSidebar"] .stButton > button:hover {
+        background: #333;
+    }
+    [data-theme="dark"] section[data-testid="stSidebar"] .stButton > button {
+        background: #e8e8e8;
+        color: #1a1a1a;
+    }
+    [data-theme="dark"] section[data-testid="stSidebar"] .stButton > button:hover {
+        background: #ccc;
     }
 
-    /* Chat messages */
-    .stChatMessage { border-radius: 10px; margin-bottom: 8px; }
+    /* ── Session list items ─────────────────────────── */
+    .session-item {
+        padding: 8px 12px;
+        border-radius: 6px;
+        cursor: pointer;
+        margin-bottom: 2px;
+        font-size: 0.88rem;
+        color: #374151;
+        transition: background 0.15s;
+    }
+    .session-item:hover { background: #e8e5df; }
+    .session-item.active { background: #e0ddd7; font-weight: 500; }
+    [data-theme="dark"] .session-item { color: #d1d5db; }
+    [data-theme="dark"] .session-item:hover { background: #333; }
+    [data-theme="dark"] .session-item.active { background: #444; }
 
-    /* Hide streamlit branding */
+    .session-title { font-size: 0.88rem; line-height: 1.3; }
+    .session-time { font-size: 0.72rem; color: #9ca3af; margin-top: 1px; }
+
+    /* ── Main chat area ─────────────────────────────── */
+    .block-container {
+        max-width: 780px;
+        margin: 0 auto;
+        padding-top: 2rem;
+    }
+
+    /* ── Message styling ────────────────────────────── */
+    .msg-row { margin-bottom: 1.2rem; }
+    .msg-label {
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #6b7280;
+        margin-bottom: 4px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .msg-label .avatar {
+        width: 22px; height: 22px;
+        border-radius: 50%;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.7rem;
+    }
+    .avatar-user { background: #dbeafe; color: #2563eb; }
+    .avatar-bot { background: #fef3c7; color: #d97706; }
+    .msg-content {
+        font-size: 0.95rem;
+        line-height: 1.65;
+        color: #1f2937;
+        padding-left: 28px;
+    }
+    [data-theme="dark"] .msg-label { color: #9ca3af; }
+    [data-theme="dark"] .msg-content { color: #e5e7eb; }
+
+    /* ── Sources ─────────────────────────────────────── */
+    .sources-toggle {
+        font-size: 0.78rem;
+        color: #6b7280;
+        cursor: pointer;
+        padding-left: 28px;
+        margin-top: 4px;
+    }
+    .source-chip {
+        display: inline-block;
+        background: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 4px;
+        padding: 2px 8px;
+        font-size: 0.72rem;
+        margin: 2px 4px 2px 0;
+        color: #4b5563;
+    }
+    [data-theme="dark"] .source-chip {
+        background: #2d2d2d;
+        border-color: #444;
+        color: #9ca3af;
+    }
+
+    /* ── Empty state ─────────────────────────────────── */
+    .empty-greeting {
+        text-align: center;
+        padding: 3rem 1rem 1rem;
+    }
+    .empty-greeting h2 {
+        font-size: 1.8rem;
+        font-weight: 700;
+        color: #111827;
+        margin-bottom: 0.3rem;
+    }
+    .empty-greeting p {
+        color: #6b7280;
+        font-size: 0.95rem;
+    }
+    [data-theme="dark"] .empty-greeting h2 { color: #f3f4f6; }
+    [data-theme="dark"] .empty-greeting p { color: #9ca3af; }
+
+    /* ── Suggestion cards ────────────────────────────── */
+    .suggestion-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        max-width: 560px;
+        margin: 1.5rem auto 0;
+    }
+    .suggestion-card {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 14px 16px;
+        cursor: pointer;
+        font-size: 0.88rem;
+        color: #374151;
+        transition: border-color 0.2s, box-shadow 0.2s;
+        text-align: left;
+    }
+    .suggestion-card:hover {
+        border-color: #a78bfa;
+        box-shadow: 0 2px 8px rgba(167,139,250,0.15);
+    }
+    [data-theme="dark"] .suggestion-card {
+        background: #262626;
+        border-color: #444;
+        color: #d1d5db;
+    }
+
+    /* ── File chip ────────────────────────────────────── */
+    .file-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: #eff6ff;
+        border: 1px solid #bfdbfe;
+        border-radius: 6px;
+        padding: 4px 10px;
+        font-size: 0.8rem;
+        color: #1d4ed8;
+        margin-bottom: 8px;
+    }
+    .file-chip button {
+        background: none;
+        border: none;
+        color: #6b7280;
+        cursor: pointer;
+        font-size: 1rem;
+        padding: 0;
+        line-height: 1;
+    }
+
+    /* ── System message ──────────────────────────────── */
+    .system-msg {
+        text-align: center;
+        font-size: 0.82rem;
+        color: #6b7280;
+        padding: 6px 0;
+    }
+
+    /* ── Hide Streamlit branding ────────────────────── */
     #MainMenu { visibility: hidden; }
-    footer     { visibility: hidden; }
-    header     { visibility: hidden; }
+    footer { visibility: hidden; }
+    header { visibility: hidden; }
+
+    /* ── Fix suggestion cards in Streamlit buttons ──── */
+    div[data-testid="stHorizontalBlock"] > div > button {
+        background: white;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 14px 16px;
+        text-align: left;
+        font-size: 0.88rem;
+        color: #374151;
+        height: auto;
+        transition: border-color 0.2s;
+    }
+    div[data-testid="stHorizontalBlock"] > div > button:hover {
+        border-color: #a78bfa;
+        box-shadow: 0 2px 8px rgba(167,139,250,0.15);
+    }
+    [data-theme="dark"] div[data-testid="stHorizontalBlock"] > div > button {
+        background: #262626;
+        border-color: #444;
+        color: #d1d5db;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 
 # ============================================================
-# SESSION STATE INITIALIZATION
-# ============================================================
-def init_session_state():
-    """Initialize all session state variables."""
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "session_id" not in st.session_state:
-        st.session_state.session_id = str(uuid.uuid4())
-    if "total_queries" not in st.session_state:
-        st.session_state.total_queries = 0
-    if "total_latency_ms" not in st.session_state:
-        st.session_state.total_latency_ms = 0
-    if "total_confidence" not in st.session_state:
-        st.session_state.total_confidence = 0.0
-    if "last_sources" not in st.session_state:
-        st.session_state.last_sources = []
-    if "chip_query" not in st.session_state:
-        st.session_state.chip_query = None
-
-init_session_state()
-
-
-# ============================================================
 # API HELPERS
 # ============================================================
-def check_api_health() -> dict:
-    """Check if FastAPI backend is healthy."""
-    url = f"{BACKEND_URL}/health"
+
+def api_get(path: str, timeout: int = 10):
     try:
-        response = requests.get(url, timeout=5)
-        print(f"[FRONTEND LOG] GET {url} | Status: {response.status_code} | Body Preview: {response.text[:200]}")
-        if response.status_code == 200:
-            return response.json()
-        return {"status": "degraded"}
-    except Exception as e:
-        print(f"[FRONTEND LOG] GET {url} | Failed: {str(e)}")
-        return {"status": "offline"}
+        r = requests.get(f"{BACKEND_URL}{path}", timeout=timeout)
+        if r.status_code == 200:
+            return r.json()
+    except Exception:
+        pass
+    return None
 
 
-def send_chat_message(message: str) -> dict:
-    """Send message to FastAPI /chat endpoint."""
-    url = f"{BACKEND_URL}/chat"
+def api_post(path: str, json_data: dict = None, timeout: int = 60):
     try:
-        response = requests.post(
-            url,
-            json={
-                "message": message,
-                "session_id": st.session_state.session_id,
-                "include_sources": True,
-            },
-            timeout=60,
-        )
-        print(f"[FRONTEND LOG] POST {url} | Status: {response.status_code} | Body Preview: {response.text[:200]}")
-        if response.status_code == 200:
-            return response.json()
-        return {
-            "answer": f"❌ API Error {response.status_code}: {response.text}",
-            "sources": [],
-            "confidence": 0.0,
-            "latency_ms": 0,
-        }
+        r = requests.post(f"{BACKEND_URL}{path}", json=json_data, timeout=timeout)
+        return r.status_code, r.json() if r.status_code == 200 else {"error": r.text}
+    except requests.exceptions.ConnectionError:
+        return 0, {"error": f"Cannot connect to {BACKEND_URL}"}
     except requests.exceptions.Timeout:
-        print(f"[FRONTEND LOG] POST {url} | Timeout")
-        return {
-            "answer": "⏱️ Request timed out. Please try again in a few seconds.",
-            "sources": [],
-            "confidence": 0.0,
-            "latency_ms": 0,
-        }
-    except requests.exceptions.ConnectionError as e:
-        print(f"[FRONTEND LOG] POST {url} | ConnectionError: {str(e)}")
-        return {
-            "answer": f"❌ Cannot connect to FinBot API at {BACKEND_URL}. Make sure the backend is running and accessible.",
-            "sources": [],
-            "confidence": 0.0,
-            "latency_ms": 0,
-        }
+        return 0, {"error": "Request timed out"}
     except Exception as e:
-        print(f"[FRONTEND LOG] POST {url} | Unexpected Error: {str(e)}")
-        return {
-            "answer": f"❌ Unexpected error: {str(e)}",
-            "sources": [],
-            "confidence": 0.0,
-            "latency_ms": 0,
-        }
+        return 0, {"error": str(e)}
 
 
-def get_index_data() -> dict:
-    """Fetch Nifty and Sensex data from backend."""
-    nifty_url = f"{BACKEND_URL}/market/%5ENSEI"
-    sensex_url = f"{BACKEND_URL}/market/%5EBSESN"
+def api_patch(path: str, json_data: dict):
     try:
-        nifty_res = requests.get(nifty_url,  timeout=5)
-        print(f"[FRONTEND LOG] GET {nifty_url} | Status: {nifty_res.status_code}")
-        nifty = nifty_res.json()
-        
-        sensex_res = requests.get(sensex_url, timeout=5)
-        print(f"[FRONTEND LOG] GET {sensex_url} | Status: {sensex_res.status_code}")
-        sensex = sensex_res.json()
-        
-        return {"nifty": nifty, "sensex": sensex}
+        r = requests.patch(f"{BACKEND_URL}{path}", json=json_data, timeout=10)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def api_delete(path: str):
+    try:
+        r = requests.delete(f"{BACKEND_URL}{path}", timeout=10)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def api_upload(file_bytes, filename: str, session_id: str):
+    try:
+        r = requests.post(
+            f"{BACKEND_URL}/upload",
+            files={"file": (filename, file_bytes)},
+            data={"session_id": session_id},
+            timeout=120,
+        )
+        return r.status_code, r.json() if r.status_code == 200 else {"error": r.text}
+    except requests.exceptions.ConnectionError:
+        return 0, {"error": f"Cannot connect to {BACKEND_URL}"}
+    except requests.exceptions.Timeout:
+        return 0, {"error": "Upload timed out"}
     except Exception as e:
-        print(f"[FRONTEND LOG] GET market indices failed: {str(e)}")
-        return {}
+        return 0, {"error": str(e)}
+
+
+# ============================================================
+# STATE MANAGEMENT
+# ============================================================
+
+def init_state():
+    if "current_session" not in st.session_state:
+        st.session_state.current_session = None
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "sessions" not in st.session_state:
+        st.session_state.sessions = []
+    if "pending_file" not in st.session_state:
+        st.session_state.pending_file = None
+    if "pending_filename" not in st.session_state:
+        st.session_state.pending_filename = None
+    if "rename_target" not in st.session_state:
+        st.session_state.rename_target = None
+
+
+def refresh_sessions():
+    data = api_get("/sessions")
+    if data:
+        st.session_state.sessions = data.get("sessions", [])
+
+
+def load_session_messages(session_id: str):
+    data = api_get(f"/sessions/{session_id}/messages")
+    if data:
+        st.session_state.messages = data.get("messages", [])
+        st.session_state.current_session = session_id
+    else:
+        st.session_state.messages = []
+        st.session_state.current_session = session_id
+
+
+def new_chat():
+    sid = str(uuid.uuid4())
+    st.session_state.current_session = sid
+    st.session_state.messages = []
+    st.session_state.pending_file = None
+    st.session_state.pending_filename = None
+    refresh_sessions()
+
+
+def relative_time(iso_str: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        now = datetime.now(timezone.utc)
+        diff = now - dt
+        if diff.days > 30:
+            return dt.strftime("%b %d")
+        elif diff.days > 0:
+            return f"{diff.days}d ago"
+        elif diff.seconds > 3600:
+            return f"{diff.seconds // 3600}h ago"
+        elif diff.seconds > 60:
+            return f"{diff.seconds // 60}m ago"
+        else:
+            return "just now"
+    except Exception:
+        return ""
 
 
 # ============================================================
 # SIDEBAR
 # ============================================================
+
 def render_sidebar():
-    """Render the sidebar with stats and market data."""
     with st.sidebar:
+        st.markdown("### 💰 FinBot")
+        st.markdown("")
 
-        # ── Logo & Title ──────────────────────────────────────
-        st.markdown("## 💰 FinBot")
-        st.markdown("*AI Financial Advisor for India*")
+        # New chat button
+        if st.button("+ New chat", use_container_width=True):
+            new_chat()
+            st.rerun()
+
+        st.markdown("")
+
+        # Session list
+        if st.session_state.sessions:
+            st.markdown("**Chats**")
+            for s in st.session_state.sessions:
+                sid = s["session_id"]
+                title = s.get("title", "New chat") or "New chat"
+                updated = relative_time(s.get("updated_at", ""))
+                is_active = sid == st.session_state.current_session
+
+                col1, col2 = st.columns([5, 1])
+                with col1:
+                    btn_label = f"{'**' if is_active else ''}{title}{'**' if is_active else ''}"
+                    if st.button(
+                        btn_label,
+                        key=f"sess_{sid}",
+                        use_container_width=True,
+                    ):
+                        load_session_messages(sid)
+                        st.rerun()
+                with col2:
+                    if st.button("...", key=f"menu_{sid}"):
+                        st.session_state.rename_target = sid
+
+                # Rename dialog
+                if st.session_state.rename_target == sid:
+                    new_title = st.text_input(
+                        "Rename",
+                        value=title,
+                        key=f"rename_{sid}",
+                        label_visibility="collapsed",
+                    )
+                    rc1, rc2 = st.columns(2)
+                    with rc1:
+                        if st.button("Save", key=f"rsave_{sid}"):
+                            api_patch(f"/sessions/{sid}", {"title": new_title})
+                            st.session_state.rename_target = None
+                            refresh_sessions()
+                            st.rerun()
+                    with rc2:
+                        if st.button("Delete", key=f"rdel_{sid}"):
+                            api_delete(f"/sessions/{sid}")
+                            if st.session_state.current_session == sid:
+                                st.session_state.current_session = None
+                                st.session_state.messages = []
+                            st.session_state.rename_target = None
+                            refresh_sessions()
+                            st.rerun()
+        else:
+            st.caption("No conversations yet")
+
+        # Bottom: Market data + status
         st.markdown("---")
-
-        # ── API Health ────────────────────────────────────────
-        st.markdown("### 🔌 System Status")
-        health = check_api_health()
-        status = health.get("status", "offline")
-
-        if status == "healthy":
-            st.success("✅ API Online")
-            st.caption(f"Model: `{health.get('model','N/A')}`")
+        st.markdown("**System Status**")
+        health = api_get("/health", timeout=5)
+        if health and health.get("status") == "healthy":
+            st.success("API Online")
             st.caption(f"Docs: {health.get('document_count', 0)} chunks")
-        elif status == "degraded":
-            st.warning("⚠️ API Degraded")
         else:
-            st.error("❌ API Offline")
-            st.caption(f"Backend: {BACKEND_URL}")
+            st.error("API Offline")
 
-        st.markdown("---")
-
-        # ── Session Stats ─────────────────────────────────────
-        st.markdown("### 📊 Session Stats")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Queries", st.session_state.total_queries)
-        with col2:
-            avg_latency = (
-                st.session_state.total_latency_ms //
-                max(st.session_state.total_queries, 1)
-            )
-            st.metric("Avg Speed", f"{avg_latency}ms")
-
-        st.markdown("---")
-
-        # ── Market Snapshot ───────────────────────────────────
-        st.markdown("### 📈 Market Snapshot")
-        with st.spinner("Loading..."):
-            indices = get_index_data()
-
-        if indices:
-            nifty  = indices.get("nifty",  {})
-            sensex = indices.get("sensex", {})
-
-            if nifty.get("current_price"):
-                chg  = nifty.get("change_percent", 0)
-                sign = "▲" if chg >= 0 else "▼"
-                st.metric(
-                    "Nifty 50",
-                    f"{nifty['current_price']:,.0f}",
-                    f"{sign} {abs(chg):.2f}%"
-                )
-
-            if sensex.get("current_price"):
-                chg  = sensex.get("change_percent", 0)
-                sign = "▲" if chg >= 0 else "▼"
-                st.metric(
-                    "Sensex",
-                    f"{sensex['current_price']:,.0f}",
-                    f"{sign} {abs(chg):.2f}%"
-                )
-        else:
-            st.caption("Market data unavailable.")
-
-        st.markdown("---")
-
-        # ── Action Buttons ────────────────────────────────────
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🗑️ Clear Chat", use_container_width=True):
-                st.session_state.messages         = []
-                st.session_state.total_queries    = 0
-                st.session_state.total_latency_ms = 0
-                st.session_state.total_confidence = 0.0
-                st.session_state.last_sources     = []
-                st.session_state.session_id       = str(uuid.uuid4())
-                st.rerun()
-
-        with col2:
-            if st.session_state.messages:
-                chat_export  = f"FinBot Chat Export\n{'='*40}\n"
-                chat_export += f"Session: {st.session_state.session_id}\n"
-                chat_export += f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
-                chat_export += "="*40 + "\n\n"
-                for msg in st.session_state.messages:
-                    role = "You" if msg["role"] == "user" else "FinBot"
-                    chat_export += f"{role}:\n{msg['content']}\n\n"
-                    chat_export += "-"*40 + "\n\n"
-
-                st.download_button(
-                    "💾 Export",
-                    data=chat_export,
-                    file_name=f"finbot_chat_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                    mime="text/plain",
-                    use_container_width=True,
-                )
-
-        st.markdown("---")
-        st.caption("v1.0.0 • Powered by LLaMA 3.1 8B")
-        st.caption("NVIDIA NIM API • ChromaDB RAG")
+        with st.expander("Market Snapshot"):
+            nifty = api_get("/market/%5ENSEI", timeout=5)
+            sensex = api_get("/market/%5EBSESN", timeout=5)
+            if nifty:
+                chg = nifty.get("change_percent", 0)
+                sign = "+" if chg >= 0 else ""
+                st.metric("Nifty 50", f"{nifty.get('current_price', 0):,.0f}", f"{sign}{chg:.2f}%")
+            if sensex:
+                chg = sensex.get("change_percent", 0)
+                sign = "+" if chg >= 0 else ""
+                st.metric("Sensex", f"{sensex.get('current_price', 0):,.0f}", f"{sign}{chg:.2f}%")
 
 
 # ============================================================
-# MAIN CHAT AREA
+# MAIN PANEL
 # ============================================================
-def render_header():
-    """Render the main page header — no disclaimer."""
-    st.markdown(
-        "<div class='finbot-header'>"
-        "<p class='finbot-title'>💰 FinBot</p>"
-        "<p class='finbot-tagline'>AI-Powered Financial Advisor for India • "
-        "Budgeting • Investing • Taxation • Insurance • Loans</p>"
-        "</div>",
-        unsafe_allow_html=True
-    )
 
+def render_empty_state():
+    st.markdown("""
+    <div class="empty-greeting">
+        <h2>Good {}</h2>
+        <p>I'm FinBot, your AI financial advisor. How can I help?</p>
+    </div>
+    """.format(
+        "morning" if datetime.now().hour < 12 else
+        "afternoon" if datetime.now().hour < 17 else "evening"
+    ), unsafe_allow_html=True)
 
-def render_starter_chips():
-    """Render clickable starter question buttons."""
-    st.markdown("**💡 Quick Questions:**")
-    chips = [
+    suggestions = [
         ("💰", "How to save tax under Section 80C?"),
         ("📈", "How much SIP to build Rs 1 crore corpus?"),
         ("🏠", "How is home loan EMI calculated?"),
-        ("🛡️", "What is difference between term and ULIP insurance?"),
+        ("🛡️", "Difference between term and ULIP insurance?"),
         ("📊", "What is the 50/30/20 budgeting rule?"),
+        ("💳", "How does CIBIL score affect loan approval?"),
     ]
 
-    cols = st.columns(len(chips))
-    for i, (emoji, question) in enumerate(chips):
-        with cols[i]:
-            if st.button(f"{emoji} {question[:22]}...", key=f"chip_{i}"):
-                st.session_state.chip_query = question
+    cols = st.columns(2)
+    for i, (emoji, question) in enumerate(suggestions):
+        col = cols[i % 2]
+        with col:
+            if st.button(
+                f"{emoji}  {question}",
+                key=f"sug_{i}",
+                use_container_width=True,
+            ):
+                st.session_state.pending_query = question
+                st.rerun()
 
 
-def render_chat_history():
-    """Render all chat messages — answer only, no sources/confidence/latency."""
+def render_messages():
     for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        sources = msg.get("sources", [])
+
+        if role == "user":
+            st.markdown(f"""
+            <div class="msg-row">
+                <div class="msg-label">
+                    <span class="avatar avatar-user">U</span> You
+                </div>
+                <div class="msg-content">{content}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="msg-row">
+                <div class="msg-label">
+                    <span class="avatar avatar-bot">F</span> FinBot
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            st.markdown(content)
+
+            # Sources
+            if sources:
+                with st.expander("Sources", expanded=False):
+                    for src in sources:
+                        fname = src.get("file_name", "unknown")
+                        page = src.get("page_number", "?")
+                        score = src.get("relevance_score", 0)
+                        st.markdown(
+                            f'<span class="source-chip">{fname} p.{page} ({score:.2f})</span>',
+                            unsafe_allow_html=True,
+                        )
+
+            # Copy button
+            st.markdown(
+                f'<div class="sources-toggle">📋 Copy</div>',
+                unsafe_allow_html=True,
+            )
 
 
-def process_message(user_input: str):
-    """
-    Process a user message through the RAG pipeline.
-    Shows only the answer — no sources, confidence, or latency.
-    """
+def handle_send(user_input: str):
     if not user_input or not user_input.strip():
         return
 
-    # Add user message to history
-    st.session_state.messages.append({
-        "role": "user",
-        "content": user_input,
-    })
+    # Ensure we have a session
+    if not st.session_state.current_session:
+        st.session_state.current_session = str(uuid.uuid4())
 
-    # Show user message immediately
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    session_id = st.session_state.current_session
 
-    # Call API and show response
-    with st.chat_message("assistant"):
-        with st.spinner("💭 FinBot is thinking..."):
-            result = send_chat_message(user_input)
+    # Add user message to UI
+    st.session_state.messages.append({"role": "user", "content": user_input})
 
-        answer     = result.get("answer", "Sorry, I could not process your request.")
-        sources    = result.get("sources", [])
-        confidence = result.get("confidence", 0.0)
-        latency_ms = result.get("latency_ms", 0)
+    # Handle file upload if pending
+    if st.session_state.pending_file:
+        file_bytes = st.session_state.pending_file
+        filename = st.session_state.pending_filename
+        st.session_state.pending_file = None
+        st.session_state.pending_filename = None
 
-        # ✅ Show answer ONLY — sources, confidence, latency all hidden
-        st.markdown(answer)
+        status, resp = api_upload(file_bytes, filename, session_id)
+        if status == 200:
+            chunk_count = resp.get("chunk_count", 0)
+            page_count = resp.get("page_count", 0)
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"📄 Added `{filename}` — {page_count} pages, {chunk_count} chunks. I can now answer questions about it.",
+            })
+        else:
+            error = resp.get("error", "Upload failed")
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": f"❌ Upload failed: {error}",
+            })
 
-    # Save to session state (stored internally, never shown)
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": answer,
-        "sources": sources,
-        "confidence": confidence,
-        "latency_ms": latency_ms,
-    })
+    # Show spinner and call API
+    with st.spinner("Thinking..."):
+        status, result = api_post("/chat", {
+            "message": user_input,
+            "session_id": session_id,
+            "include_sources": True,
+        })
 
-    # Update internal stats only
-    st.session_state.total_queries    += 1
-    st.session_state.total_latency_ms += latency_ms
-    st.session_state.total_confidence += confidence
-    st.session_state.last_sources      = sources
+    if status == 200:
+        answer = result.get("answer", "Sorry, I could not process that.")
+        sources = result.get("sources", [])
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": answer,
+            "sources": sources,
+        })
+    else:
+        error = result.get("error", "Unknown error")
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": f"❌ Error: {error}",
+        })
+
+    # Refresh session list
+    refresh_sessions()
 
 
 # ============================================================
 # MAIN APP
 # ============================================================
-def main():
-    """Main Streamlit app entry point."""
 
-    # Render sidebar
+def main():
+    init_state()
     render_sidebar()
 
-    # Render header — disclaimer removed
-    render_header()
+    # Current session indicator
+    if st.session_state.current_session:
+        st.caption(f"Session: {st.session_state.current_session[:8]}...")
 
-    # Show starter chips only if no messages yet
+    # Render content
     if not st.session_state.messages:
-        render_starter_chips()
-        st.markdown("---")
+        render_empty_state()
+    else:
+        render_messages()
 
-    # Render chat history — answer only
-    render_chat_history()
-
-    # Handle chip query
-    if st.session_state.chip_query:
-        query = st.session_state.chip_query
-        st.session_state.chip_query = None
-        process_message(query)
+    # Handle suggestion chip clicks
+    if hasattr(st.session_state, "pending_query") and st.session_state.pending_query:
+        query = st.session_state.pending_query
+        st.session_state.pending_query = None
+        handle_send(query)
         st.rerun()
 
-    # Chat input
-    user_input = st.chat_input(
-        "Ask FinBot about budgeting, investing, taxes, insurance, or loans..."
+    # File upload area
+    uploaded_file = st.file_uploader(
+        "Attach file",
+        type=ALLOWED_TYPES,
+        label_visibility="collapsed",
+        key="file_uploader",
     )
+    if uploaded_file:
+        if uploaded_file.name != st.session_state.pending_filename:
+            st.session_state.pending_file = uploaded_file.getvalue()
+            st.session_state.pending_filename = uploaded_file.name
+            st.markdown(
+                f'<div class="file-chip">📎 {uploaded_file.name} <button onclick="this.parentElement.remove()">×</button></div>',
+                unsafe_allow_html=True,
+            )
 
+    # Chat input
+    user_input = st.chat_input("Ask FinBot about budgeting, investing, taxes, insurance, or loans...")
     if user_input:
-        process_message(user_input)
+        handle_send(user_input)
         st.rerun()
 
 

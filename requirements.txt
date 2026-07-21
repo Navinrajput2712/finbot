@@ -23,8 +23,14 @@ fastapi>=0.111.0
 uvicorn[standard]>=0.29.0
 pydantic>=2.7.0
 python-dotenv
+python-multipart
 yfinance
 requests
+
+# Document parsing for upload
+pypdf
+python-docx
+pandas
 
 # Frontend
 streamlit>=1.35.0

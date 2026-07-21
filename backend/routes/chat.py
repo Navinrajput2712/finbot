@@ -1,6 +1,6 @@
 """
 FinBot — backend/routes/chat.py
-=================================
+================================
 Main chat endpoint — processes user financial queries
 through the RAG pipeline and returns grounded responses.
 
@@ -8,103 +8,26 @@ Endpoint:
     POST /chat
 """
 
+import json
 import logging
-import os
-import time
-from collections import OrderedDict
-from typing import Dict, List
 from fastapi import APIRouter, Request, HTTPException
 
 from backend.schemas import ChatRequest, ChatResponse, Source
+from backend.db import db
 from rag.pipeline import ask_finbot, is_market_query
 from backend.market_data import get_stock_data, extract_ticker_from_query
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-# ── In-memory session store with TTL and max-size eviction ───
-# NOTE: For multi-instance deployments (e.g. multiple Render services),
-# replace this with Redis or another shared cache.
-SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
-SESSION_STORE_MAX_SIZE = int(os.getenv("SESSION_STORE_MAX_SIZE", "1000"))
-
-# Each value is a dict: {"messages": [...], "last_accessed": float}
-session_store: OrderedDict[str, dict] = OrderedDict()
-
-MAX_HISTORY = 10  # Last 5 turns = 10 messages
+MAX_HISTORY = 10
 
 
-def _evict_expired() -> None:
-    """Remove sessions that have exceeded the TTL."""
-    now = time.time()
-    expired = [
-        sid for sid, entry in session_store.items()
-        if now - entry["last_accessed"] > SESSION_TTL_SECONDS
-    ]
-    for sid in expired:
-        del session_store[sid]
-    if expired:
-        logger.info("Evicted %d expired sessions", len(expired))
-
-
-def _enforce_max_size() -> None:
-    """Evict least-recently-used entries when the store exceeds max size."""
-    while len(session_store) > SESSION_STORE_MAX_SIZE:
-        evicted_sid, _ = session_store.popitem(last=False)
-        logger.info("Evicted LRU session: %s", evicted_sid)
-
-
-def get_session_history(session_id: str) -> List[dict]:
-    """
-    Retrieve conversation history for a session.
-    Returns last 5 turns (10 messages) maximum.
-    Updates last_accessed timestamp and evicts stale entries.
-
-    Args:
-        session_id: Unique session identifier
-
-    Returns:
-        List of message dicts with role and content
-    """
-    _evict_expired()
-
-    if session_id not in session_store:
-        session_store[session_id] = {"messages": [], "last_accessed": time.time()}
-        _enforce_max_size()
-
-    entry = session_store[session_id]
-    entry["last_accessed"] = time.time()
-    session_store.move_to_end(session_id)
-
-    return entry["messages"][-MAX_HISTORY:]
-
-
-def update_session(
-    session_id: str,
-    user_message: str,
-    bot_message: str
-) -> None:
-    """
-    Append user and assistant messages to session history.
-
-    Args:
-        session_id: Unique session identifier
-        user_message: User's question
-        bot_message: FinBot's response
-    """
-    if session_id not in session_store:
-        session_store[session_id] = {"messages": [], "last_accessed": time.time()}
-        _enforce_max_size()
-
-    entry = session_store[session_id]
-    entry["messages"].append({"role": "user", "content": user_message})
-    entry["messages"].append({"role": "assistant", "content": bot_message})
-    entry["last_accessed"] = time.time()
-    session_store.move_to_end(session_id)
-
-    # Keep only last MAX_HISTORY messages
-    if len(entry["messages"]) > MAX_HISTORY:
-        entry["messages"] = entry["messages"][-MAX_HISTORY:]
+def _get_chat_history(session_id: str) -> list:
+    """Get last N messages from SQLite for RAG context."""
+    messages = db.get_messages(session_id)
+    recent = messages[-MAX_HISTORY:]
+    return [{"role": m["role"], "content": m["content"]} for m in recent]
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -116,23 +39,22 @@ async def chat(
     Main FinBot chat endpoint.
 
     Steps:
-    1. Get session history
-    2. Check if live market query → fetch market data
-    3. Run RAG pipeline with NVIDIA NIM LLM
-    4. Update session history
-    5. Return response with sources and confidence
-
-    Args:
-        request: FastAPI request (used to access app.state.vectorstore)
-        body: ChatRequest with message and session_id
-
-    Returns:
-        ChatResponse with answer, sources, confidence, latency
+    1. Ensure session exists in SQLite
+    2. Get session history from DB
+    3. Check if live market query -> fetch market data
+    4. Run RAG pipeline with NVIDIA NIM LLM
+    5. Persist messages to DB
+    6. Return response with sources and confidence
     """
     logger.info(
-        f"Chat request — session={body.session_id} | "
-        f"message='{body.message[:80]}'"
+        "Chat request — session=%s | message='%s'",
+        body.session_id, body.message[:80],
     )
+
+    # Ensure session exists
+    if not db.get_session(session_id=body.session_id):
+        title = body.message[:40].strip()
+        db.create_session(session_id=body.session_id, title=title)
 
     # Get vectorstore from app state
     vectorstore = getattr(request.app.state, "vectorstore", None)
@@ -142,8 +64,8 @@ async def chat(
             detail="ChromaDB vectorstore not loaded. Check server logs."
         )
 
-    # Get session history
-    chat_history = get_session_history(body.session_id)
+    # Get session history from SQLite
+    chat_history = _get_chat_history(body.session_id)
 
     # Check for live market query
     market_context = None
@@ -154,29 +76,32 @@ async def chat(
                 market_data = get_stock_data(ticker)
                 market_context = (
                     f"LIVE STOCK DATA for {market_data.ticker}:\n"
-                    f"Current Price : ₹{market_data.current_price}\n"
+                    f"Current Price : Rs{market_data.current_price}\n"
                     f"Change        : {market_data.change_percent:+.2f}%\n"
                     f"Market Cap    : {market_data.market_cap}\n"
                     f"Exchange      : {market_data.exchange}\n"
                     f"Last Updated  : {market_data.last_updated}"
                 )
-                logger.info(f"Market data fetched for ticker: {ticker}")
+                logger.info("Market data fetched for ticker: %s", ticker)
             except Exception as e:
-                logger.warning(f"Market data fetch failed: {e}")
+                logger.warning("Market data fetch failed: %s", e)
 
-    # Run RAG pipeline
+    # Run RAG pipeline — pass session_id so it can merge session collection
     result = ask_finbot(
         query=body.message,
         chat_history=chat_history,
         vectorstore=vectorstore,
         market_context=market_context,
+        session_id=body.session_id,
     )
 
-    # Update session history
-    update_session(
-        session_id=body.session_id,
-        user_message=body.message,
-        bot_message=result["answer"],
+    # Persist messages to SQLite
+    db.add_message(body.session_id, "user", body.message)
+    db.add_message(
+        body.session_id,
+        "assistant",
+        result["answer"],
+        sources_json=json.dumps(result.get("sources", [])),
     )
 
     # Build sources list
@@ -190,9 +115,8 @@ async def chat(
             ))
 
     logger.info(
-        f"Response sent — session={body.session_id} | "
-        f"confidence={result['confidence']} | "
-        f"latency={result['latency_ms']}ms"
+        "Response sent — session=%s | confidence=%.2f | latency=%dms",
+        body.session_id, result["confidence"], result["latency_ms"],
     )
 
     return ChatResponse(
@@ -203,22 +127,3 @@ async def chat(
         session_id=body.session_id,
         model=result.get("model", "meta/llama-3.1-8b-instruct"),
     )
-
-
-@router.delete("/chat/{session_id}")
-async def clear_session(session_id: str) -> dict:
-    """
-    Clear conversation history for a session.
-
-    Args:
-        session_id: Session to clear
-
-    Returns:
-        Confirmation message
-    """
-    if session_id in session_store:
-        del session_store[session_id]
-        logger.info(f"Session cleared: {session_id}")
-        return {"message": f"Session {session_id} cleared successfully"}
-
-    return {"message": f"Session {session_id} not found"}
